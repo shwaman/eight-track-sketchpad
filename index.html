@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>8-Track Sketchpad</title>
+<style>
+:root{--bg:#1b1712;--panel:#2a241c;--acc:#e8a33d;--txt:#f3e9d8;--mute:#9c8f7a;--line:#3d3428}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:16px 20px;border-bottom:2px solid var(--acc)}h1{margin:0;font-size:22px;letter-spacing:2px}
+main{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 60px)}
+nav{background:var(--panel);padding:12px}
+.trk{display:flex;justify-content:space-between;align-items:center;width:100%;padding:12px;margin-bottom:6px;border:1px solid var(--line);border-radius:8px;background:#221d16;color:var(--txt);cursor:pointer;font-size:15px;text-align:left}
+.trk.on{border-color:var(--acc);background:#3a2e1d}.trk small{display:block;color:var(--mute);font-size:11px}
+.cnt{background:var(--acc);color:#1b1712;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700}
+section{padding:20px;max-width:820px}
+input,textarea,select{width:100%;background:#221d16;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px;font-family:inherit}
+textarea{min-height:70px}label{display:block;font-size:12px;color:var(--mute);margin:10px 0 4px}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.top{display:flex;gap:10px;align-items:center}
+.mode{display:flex;border:1px solid var(--acc);border-radius:8px;overflow:hidden;flex-shrink:0}
+.mode button{background:none;border:0;color:var(--acc);padding:9px 14px;cursor:pointer;font-weight:600}.mode button.on{background:var(--acc);color:#1b1712}
+.actions{margin-top:12px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+button.b{background:var(--acc);color:#1b1712;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}
+button.b.rec{background:#d9453a;color:#fff}button.s{background:none;border:1px solid var(--mute);color:var(--mute);border-radius:6px;padding:4px 10px;cursor:pointer}
+.item{background:var(--panel);border-radius:8px;padding:12px;margin-top:10px}.meta{color:var(--mute);font-size:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.item p{margin:0;white-space:pre-wrap}.item h3{margin:0 0 4px;font-size:16px}.tags{color:var(--acc);font-size:13px;margin-bottom:6px}
+.item .f{margin-top:6px}.item .f b{color:var(--mute);font-size:11px;text-transform:uppercase;display:block}
+audio{width:100%}#status{color:var(--mute)}.hint{color:var(--mute);font-size:13px;margin:8px 0 0}
+@media(max-width:640px){main{grid-template-columns:1fr}nav{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.trk{margin:0;flex-direction:column;gap:4px}.row{grid-template-columns:1fr 1fr}.top{flex-wrap:wrap}}
+</style></head><body>
+<header><h1>▶ 8-TRACK SKETCHPAD</h1></header>
+<main><nav id="nav"></nav>
+<section>
+<div class="top"><input id="name" placeholder="Track name"><div class="mode"><button id="mSketch">Sketch</button><button id="mStruct">Structured</button></div></div>
+
+<div id="sketch">
+<label>Quick idea</label>
+<input id="quick" placeholder="A few words, a rough chord, a rhythm… press Enter to save">
+<p class="hint">Or hit Record and hum it.</p>
+</div>
+
+<div id="struct" hidden>
+<label>Title</label><input id="f_title" placeholder="Working title">
+<div class="row">
+<div><label>Key</label><input id="f_key" placeholder="e.g. A minor"></div>
+<div><label>Tempo (BPM)</label><input id="f_tempo" type="number" min="20" max="300" placeholder="e.g. 92"></div>
+<div><label>Time signature</label><input id="f_time" placeholder="e.g. 4/4"></div>
+</div>
+<label>Chords / progression</label><input id="f_chords" placeholder="e.g. Am – F – C – G">
+<label>Lyrics</label><textarea id="f_lyrics" placeholder="Verse, chorus…"></textarea>
+<label>Arrangement notes</label><textarea id="f_arr" placeholder="Intro 4 bars, drums enter on verse 2, bridge drops out…"></textarea>
+</div>
+
+<div class="actions"><button class="b" id="save">Save</button><button class="b" id="recbtn">● Record</button><span id="status"></span></div>
+<div id="list"></div>
+</section></main>
+<script>
+const DB='eighttrack',ST='items';let db,cur=1,rec,chunks=[],t0,tick;
+const load=(k,d)=>JSON.parse(localStorage.getItem(k)||d);
+const names=load('et_names','{}'),modes=load('et_modes','{}');
+const $=id=>document.getElementById(id);
+const F=['title','key','tempo','time','chords','lyrics','arr'],LBL={chords:'Chords',lyrics:'Lyrics',arr:'Arrangement'};
+function openDB(){return new Promise(r=>{const q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore(ST,{keyPath:'id',autoIncrement:true}).createIndex('track','track');q.onsuccess=()=>r(q.result)})}
+const store=m=>db.transaction(ST,m).objectStore(ST);
+const all=()=>new Promise(r=>{const q=store('readonly').getAll();q.onsuccess=()=>r(q.result)});
+const add=o=>new Promise(r=>{store('readwrite').add(o).onsuccess=r});
+const del=id=>new Promise(r=>{store('readwrite').delete(id).onsuccess=r});
+const mode=()=>modes[cur]||'sketch';
+const el=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
+async function render(){
+ const items=await all(),nav=$('nav');nav.innerHTML='';
+ for(let i=1;i<=8;i++){const b=el('button','trk'+(i===cur?' on':''));const l=el('span');l.append(el('span',null,`${i}. ${names[i]||'Track '+i}`),el('small',null,(modes[i]||'sketch')==='sketch'?'Sketch':'Structured'));
+  b.append(l,el('span','cnt',items.filter(x=>x.track===i).length));b.onclick=()=>{cur=i;render()};nav.appendChild(b)}
+ $('name').value=names[cur]||'';const s=mode()==='sketch';
+ $('sketch').hidden=!s;$('struct').hidden=s;$('mSketch').className=s?'on':'';$('mStruct').className=s?'':'on';
+ const list=$('list');list.innerHTML='';
+ items.filter(x=>x.track===cur).sort((a,b)=>b.time-a.time).forEach(x=>{
+  const d=el('div','item'),meta=el('div','meta');
+  const kind=x.type==='audio'?'🎙 Recording':x.type==='structured'?'▤ Structured idea':'✎ Sketch';
+  meta.append(el('span',null,`${kind} · ${new Date(x.time).toLocaleString()}`));
+  const rm=el('button','s','Delete');rm.onclick=async()=>{if(confirm('Delete this?')){await del(x.id);render()}};meta.append(rm);d.append(meta);
+  if(x.type==='audio'){const a=el('audio');a.controls=true;a.src=URL.createObjectURL(x.blob);d.append(a)}
+  else if(x.type==='structured'){const v=x.fields;if(v.title)d.append(el('h3',null,v.title));
+   const tags=[v.key,v.tempo&&v.tempo+' BPM',v.time].filter(Boolean).join(' · ');if(tags)d.append(el('div','tags',tags));
+   ['chords','lyrics','arr'].forEach(k=>{if(v[k]){const f=el('div','f');f.append(el('b',null,LBL[k]),el('p',null,v[k]));d.append(f)}})}
+  else d.append(el('p',null,x.text));
+  list.appendChild(d)});
+ if(!list.children.length)list.append(el('p','hint','Nothing on this track yet.'))}
+$('name').oninput=e=>{names[cur]=e.target.value;localStorage.setItem('et_names',JSON.stringify(names));render()};
+function setMode(m){modes[cur]=m;localStorage.setItem('et_modes',JSON.stringify(modes));render()}
+$('mSketch').onclick=()=>setMode('sketch');$('mStruct').onclick=()=>setMode('structured');
+async function save(){
+ if(mode()==='sketch'){const q=$('quick');if(!q.value.trim())return;await add({track:cur,type:'text',text:q.value.trim(),time:Date.now()});q.value=''}
+ else{const fields={};F.forEach(k=>fields[k]=$('f_'+k).value.trim());if(!Object.values(fields).some(Boolean))return;
+  await add({track:cur,type:'structured',fields,time:Date.now()});F.forEach(k=>$('f_'+k).value='')}
+ render()}
+$('save').onclick=save;$('quick').onkeydown=e=>{if(e.key==='Enter')save()};
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))save()});
+const rb=$('recbtn'),st=$('status');
+rb.onclick=async()=>{if(rec&&rec.state==='recording'){rec.stop();return}
+ try{const s=await navigator.mediaDevices.getUserMedia({audio:true});rec=new MediaRecorder(s);chunks=[];const trk=cur;
+  rec.ondataavailable=e=>chunks.push(e.data);rec.onstop=async()=>{s.getTracks().forEach(t=>t.stop());clearInterval(tick);st.textContent='';rb.textContent='● Record';rb.classList.remove('rec');
+   await add({track:trk,type:'audio',blob:new Blob(chunks,{type:rec.mimeType}),time:Date.now()});render()};
+  rec.start();t0=Date.now();rb.textContent='■ Stop';rb.classList.add('rec');tick=setInterval(()=>st.textContent='Recording '+Math.floor((Date.now()-t0)/1000)+'s',250)}
+ catch(e){st.textContent='Microphone unavailable: '+e.message}};
+openDB().then(d=>{db=d;render()});
+</script></body></html>
